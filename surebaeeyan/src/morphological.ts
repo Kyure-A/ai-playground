@@ -3,7 +3,7 @@ import * as path from "path";
 
 // 形態素解析器のインターフェース
 export interface MorphologicalAnalyzer {
-  analyze(text: string): Promise<boolean>;
+  analyze(text: string): Promise<{ hasDesire: boolean; isNegative: boolean }>;
   extractDesire(text: string): Promise<string | null>;
 }
 
@@ -48,41 +48,71 @@ export class JapaneseMorphologicalAnalyzer implements MorphologicalAnalyzer {
     return this.initPromise;
   }
 
-  // テキストに欲求表現が含まれているかを分析
-  async analyze(text: string): Promise<boolean> {
+  // テキストに欲求表現が含まれているかを分析し、肯定/否定を判定
+  async analyze(text: string): Promise<{ hasDesire: boolean; isNegative: boolean }> {
     await this.ensureInitialized();
     
     if (!this.tokenizer) {
-      return false;
+      return { hasDesire: false, isNegative: false };
     }
 
     const tokens = this.tokenizer.tokenize(text);
+    let hasDesire = false;
+    let isNegative = false;
     
     // 「たい」を含む動詞や形容詞を探す
     for (let i = 0; i < tokens.length; i++) {
       const token = tokens[i];
       
       // 「たい」で終わる助動詞を検出
-      if (
-        token.pos === "助動詞" && 
-        token.surface_form === "たい"
-      ) {
-        return true;
+      if (token.pos === "助動詞" && token.surface_form === "たい") {
+        hasDesire = true;
+        
+        // 後ろに否定表現があるか確認
+        if (i < tokens.length - 1) {
+          const nextToken = tokens[i + 1];
+          if (
+            (nextToken.pos === "助動詞" && nextToken.surface_form === "ない") ||
+            (nextToken.pos === "形容詞" && nextToken.basic_form === "ない") ||
+            (nextToken.pos_detail_1 === "否定助動詞")
+          ) {
+            isNegative = true;
+          }
+        }
       }
       
       // 「たい」を含む動詞や形容詞を検出
+      if ((token.pos === "動詞" || token.pos === "形容詞") && token.surface_form.endsWith("たい")) {
+        hasDesire = true;
+        
+        // 後ろに否定表現があるか確認
+        if (i < tokens.length - 1) {
+          const nextToken = tokens[i + 1];
+          if (
+            (nextToken.pos === "助動詞" && nextToken.surface_form === "ない") ||
+            (nextToken.pos === "形容詞" && nextToken.basic_form === "ない") ||
+            (nextToken.pos_detail_1 === "否定助動詞")
+          ) {
+            isNegative = true;
+          }
+        }
+      }
+      
+      // 「たくない」のような形式を検出
       if (
-        (token.pos === "動詞" || token.pos === "形容詞") &&
-        token.surface_form.endsWith("たい")
+        (token.pos === "形容詞" && token.surface_form.includes("たくない")) ||
+        (token.pos === "助動詞" && token.surface_form === "たく" && i < tokens.length - 1 && 
+         tokens[i + 1].surface_form === "ない")
       ) {
-        return true;
+        hasDesire = true;
+        isNegative = true;
       }
     }
 
-    return false;
+    return { hasDesire, isNegative };
   }
 
-  // 欲求表現から動詞部分を抽出
+  // 欲求表現から動詞部分を抽出（肯定・否定両方対応）
   async extractDesire(text: string): Promise<string | null> {
     await this.ensureInitialized();
     
@@ -96,11 +126,9 @@ export class JapaneseMorphologicalAnalyzer implements MorphologicalAnalyzer {
       const token = tokens[i];
       
       // 「たい」で終わる助動詞を検出した場合、前の動詞を取得
-      if (
-        token.pos === "助動詞" && 
-        token.surface_form === "たい" && 
-        i > 0
-      ) {
+      if (token.pos === "助動詞" && 
+          (token.surface_form === "たい" || token.surface_form === "たく") && 
+          i > 0) {
         // 前のトークンが動詞の場合
         if (tokens[i-1].pos === "動詞") {
           // 動詞の基本形を取得
@@ -109,13 +137,11 @@ export class JapaneseMorphologicalAnalyzer implements MorphologicalAnalyzer {
         }
       }
       
-      // 「たい」を含む動詞や形容詞を検出
-      if (
-        (token.pos === "動詞" || token.pos === "形容詞") &&
-        token.surface_form.endsWith("たい")
-      ) {
-        // 「たい」を除いた基本形を返す
-        const base = token.basic_form.replace(/たい$/, "");
+      // 「たい」「たくない」を含む動詞や形容詞を検出
+      if ((token.pos === "動詞" || token.pos === "形容詞") && 
+          (token.surface_form.endsWith("たい") || token.surface_form.includes("たくな"))) {
+        // 「たい」「たくな」を除いた基本形を返す
+        const base = token.basic_form.replace(/たい$/, "").replace(/たくな.*$/, "");
         return base;
       }
     }
