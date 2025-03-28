@@ -1,5 +1,9 @@
 import { Client, Events, GatewayIntentBits, Message } from "discord.js";
 import { config } from "./config";
+import { JapaneseMorphologicalAnalyzer } from "./morphological";
+
+// 形態素解析器の初期化
+const morphologicalAnalyzer = new JapaneseMorphologicalAnalyzer();
 
 // Discord クライアントの初期化
 const client = new Client({
@@ -20,19 +24,43 @@ client.on(Events.MessageCreate, async (message: Message) => {
   // 自分自身のメッセージには反応しない
   if (message.author.bot) return;
 
-  // 「～したい」「～してみたい」などのパターンを検出
-  const desirePattern =
-    /(.*?)(したい|してみたい|したいな|してみたいな)(\s|$|[、。!?！？])/;
-  const match = message.content.match(desirePattern);
+  try {
+    // 形態素解析で「～たい」表現を検出
+    const hasDesire = await morphologicalAnalyzer.analyze(message.content);
 
-  if (match) {
-    // 「～したい」の「～」の部分を抽出
-    const action = match[1];
+    if (hasDesire) {
+      // 欲求表現から動詞部分を抽出
+      const verb = await morphologicalAnalyzer.extractDesire(message.content);
 
-    // 「じゃあ～すればええやん」と返信
-    if (action) {
-      await message.reply(`じゃあ${action}すればええやん`);
+      if (verb) {
+        // 動詞の種類に応じて適切な応答を生成
+        let response = "";
+        
+        // 「する」の場合は名詞+する形式と判断し、元のメッセージから名詞を抽出
+        if (verb === "する") {
+          // 元のメッセージから「したい」の前の部分を抽出
+          const match = message.content.match(/(.*?)したい/);
+          if (match && match[1]) {
+            response = `じゃあ${match[1]}すればええやん`;
+          } else {
+            response = `じゃあすればええやん`;
+          }
+        } 
+        // 「する」以外の動詞の場合は、基本形から条件形に変換
+        else {
+          // 動詞の基本形から条件形に変換（簡易版）
+          const conditionalForm = verb.endsWith("る") 
+            ? verb.slice(0, -1) + "れば" // 一段動詞 (ex: 食べる → 食べれば)
+            : verb.slice(0, -1) + "えば"; // 五段動詞 (ex: 書く → 書けば)
+          
+          response = `じゃあ${conditionalForm}ええやん`;
+        }
+        
+        await message.reply(response);
+      }
     }
+  } catch (error) {
+    console.error("メッセージ処理エラー:", error);
   }
 });
 
