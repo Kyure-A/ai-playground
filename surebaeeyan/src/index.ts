@@ -48,10 +48,47 @@ client.on(Events.MessageCreate, async (message: Message) => {
         } 
         // 「する」以外の動詞の場合は、基本形から条件形に変換
         else {
-          // 動詞の基本形から条件形に変換（簡易版）
-          const conditionalForm = verb.endsWith("る") 
-            ? verb.slice(0, -1) + "れば" // 一段動詞 (ex: 食べる → 食べれば)
-            : verb.slice(0, -1) + "えば"; // 五段動詞 (ex: 書く → 書けば)
+          // 動詞の基本形から条件形に変換（詳細版）
+          let conditionalForm = "";
+          
+          // 一段動詞 (ichidan verbs) - 食べる、見る、etc.
+          if (verb.endsWith("る") && ["え", "け", "せ", "て", "ね", "へ", "め", "れ"].some(e => verb.endsWith(e + "る"))) {
+            conditionalForm = verb.slice(0, -1) + "れば";
+          } 
+          // 五段動詞 (godan verbs) - 各行の変換規則に従う
+          else {
+            const lastChar = verb.slice(-1);
+            const stem = verb.slice(0, -1);
+            
+            switch (lastChar) {
+              case "う":
+              case "つ":
+              case "る": // 五段動詞の「る」（例：取る、送る）
+                conditionalForm = stem + "れば";
+                break;
+              case "く":
+                conditionalForm = stem + "けば";
+                break;
+              case "ぐ":
+                conditionalForm = stem + "げば";
+                break;
+              case "す":
+                conditionalForm = stem + "せば";
+                break;
+              case "む":
+                conditionalForm = stem + "めば";
+                break;
+              case "ぶ":
+                conditionalForm = stem + "べば";
+                break;
+              case "ぬ":
+                conditionalForm = stem + "ねば";
+                break;
+              default:
+                // 不明な動詞の場合はそのまま返す
+                conditionalForm = verb + "ば";
+            }
+          }
           
           response = `じゃあ${conditionalForm}ええやん`;
         }
